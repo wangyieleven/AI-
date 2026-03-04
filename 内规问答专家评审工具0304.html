@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI答案专家评审工具</title>
+
+<!-- 第三方库 CDN -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
+<style>
+/* ===== 全局样式 (保持原有优秀设计) ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --primary: #2563eb; --primary-light: #eff6ff; --primary-dark: #1d4ed8;
+  --success: #16a34a; --success-light: #f0fdf4;
+  --warning: #d97706; --warning-light: #fffbeb;
+  --danger: #dc2626;
+  --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb;
+  --gray-300: #d1d5db; --gray-400: #9ca3af; --gray-500: #6b7280;
+  --gray-600: #4b5563; --gray-700: #374151; --gray-800: #1f2937; --gray-900: #111827;
+  --sidebar-width: 320px; --review-width: 340px; --header-height: 60px;
+  --border-radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 6px rgba(0,0,0,.07), 0 2px 4px rgba(0,0,0,.06);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,.1), 0 4px 6px rgba(0,0,0,.05);
+}
+html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 14px; color: var(--gray-800); background: var(--gray-50); }
+
+/* ===== 基础布局与上传页 ===== */
+#upload-page { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 24px; }
+.upload-logo { font-size: 48px; margin-bottom: 16px; }
+.upload-title { font-size: 24px; font-weight: 700; color: var(--gray-900); margin-bottom: 8px; }
+.upload-subtitle { font-size: 14px; color: var(--gray-500); margin-bottom: 40px; }
+.upload-zone { width: 100%; max-width: 520px; border: 2px dashed var(--gray-300); border-radius: 16px; padding: 48px 32px; text-align: center; cursor: pointer; transition: all .2s; background: #fff; }
+.upload-zone:hover, .upload-zone.drag-over { border-color: var(--primary); background: var(--primary-light); }
+.upload-zone-icon { font-size: 40px; margin-bottom: 12px; }
+.upload-zone-text { font-size: 16px; font-weight: 600; color: var(--gray-700); margin-bottom: 6px; }
+.upload-zone-hint { font-size: 13px; color: var(--gray-400); }
+#file-input { display: none; }
+.upload-btn { margin-top: 20px; padding: 10px 28px; background: var(--primary); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .2s; }
+.upload-btn:hover { background: var(--primary-dark); }
+.upload-progress { margin-top: 20px; font-size: 13px; color: var(--gray-500); }
+
+#app { display: none; height: 100vh; flex-direction: column; }
+#app.visible { display: flex; }
+
+/* 顶部Header */
+#header { height: var(--header-height); background: #fff; border-bottom: 1px solid var(--gray-200); display: flex; align-items: center; padding: 0 20px; gap: 16px; box-shadow: var(--shadow); z-index: 100; flex-shrink: 0; }
+.header-logo { font-size: 18px; font-weight: 700; color: var(--primary); white-space: nowrap; }
+.header-file { font-size: 13px; color: var(--gray-500); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-wrap { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.progress-text { font-size: 13px; color: var(--gray-600); white-space: nowrap; }
+.progress-bar-bg { width: 140px; height: 8px; background: var(--gray-200); border-radius: 4px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: var(--success); border-radius: 4px; transition: width .4s; }
+.header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.btn { padding: 7px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; }
+.btn-icon { padding: 7px 10px; font-size: 14px; border: 1px solid var(--gray-300); background: #fff; border-radius: 6px; cursor: pointer; transition: all .15s; }
+.btn-icon:hover { background: var(--gray-100); border-color: var(--gray-400); }
+.btn-outline { background: #fff; border: 1px solid var(--gray-300); color: var(--gray-700); }
+.btn-outline:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { background: #15803d; }
+
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* 左侧侧边栏 */
+#sidebar { width: var(--sidebar-width); flex-shrink: 0; background: #fff; border-right: 1px solid var(--gray-200); display: flex; flex-direction: column; overflow: hidden; transition: width .25s ease; }
+.sidebar-search { padding: 12px; border-bottom: 1px solid var(--gray-100); }
+.search-input { width: 100%; padding: 8px 12px; border: 1px solid var(--gray-200); border-radius: 6px; font-size: 13px; outline: none; transition: border-color .2s; }
+.search-input:focus { border-color: var(--primary); }
+.filter-tabs { padding: 8px 12px; border-bottom: 1px solid var(--gray-100); display: flex; flex-wrap: wrap; gap: 4px; }
+.filter-tab { padding: 4px 10px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid var(--gray-200); background: #fff; color: var(--gray-600); transition: all .15s; white-space: nowrap; }
+.filter-tab:hover { border-color: var(--primary); color: var(--primary); }
+.filter-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.filter-tab.unreviewed-tab { border-color: var(--warning); color: var(--warning); }
+.filter-tab.unreviewed-tab:hover { background: var(--warning-light); }
+.filter-tab.unreviewed-tab.active { background: var(--warning); border-color: var(--warning); color: #fff; }
+.sidebar-stats { padding: 8px 12px; background: var(--gray-50); border-bottom: 1px solid var(--gray-100); font-size: 12px; color: var(--gray-500); }
+#question-list { flex: 1; overflow-y: auto; position: relative;}
+.question-item { height: 86px; padding: 12px 14px; border-bottom: 1px solid var(--gray-100); cursor: pointer; transition: background .15s; display: flex; align-items: flex-start; gap: 10px; overflow: hidden; box-sizing: border-box; }
+.question-item:hover { background: var(--gray-50); }
+.question-item.active { background: var(--primary-light); border-left: 3px solid var(--primary); }
+.question-item.active .q-num { color: var(--primary); }
+.q-left { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.q-num { font-size: 12px; font-weight: 700; color: var(--gray-400); min-width: 28px; text-align: center; }
+.q-status { width: 8px; height: 8px; border-radius: 50%; background: var(--gray-200); }
+.q-status.reviewed { background: var(--success); }
+.q-right { flex: 1; min-width: 0; }
+.q-category { font-size: 11px; color: var(--primary); font-weight: 600; margin-bottom: 3px; }
+.q-text { font-size: 13px; color: var(--gray-700); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.q-score-badge { font-size: 11px; color: var(--success); font-weight: 700; white-space: nowrap; margin-top: 2px; }
+.search-highlight { background-color: #fef08a; color: #92400e; padding: 0 2px; border-radius: 2px; font-weight: bold; }
+
+/* 中间内容区 */
+#content { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+#empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--gray-400); }
+#empty-state .icon { font-size: 64px; margin-bottom: 16px; }
+.card { background: #fff; border-radius: var(--border-radius); border: 1px solid var(--gray-200); box-shadow: var(--shadow); overflow: hidden; }
+.card-header { padding: 12px 18px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: center; gap: 10px; background: var(--gray-50); }
+.card-header-icon { font-size: 15px; }
+.card-header-title { font-size: 14px; font-weight: 700; color: var(--gray-700); flex: 1; }
+.card-body { padding: 18px; }
+.question-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.meta-badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.meta-badge.num { background: var(--primary-light); color: var(--primary); }
+.meta-badge.cat { background: #f0fdf4; color: var(--success); }
+.question-text { font-size: 15px; font-weight: 600; color: var(--gray-900); line-height: 1.6; }
+
+/* Markdown & Reference */
+.md-content { line-height: 1.8; color: var(--gray-800); font-size: 14px; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; }
+.md-content h1, .md-content h2, .md-content h3, .md-content h4 { margin: 16px 0 8px; font-weight: 700; color: var(--gray-900); }
+.md-content h3 { font-size: 16px; border-left: 3px solid var(--primary); padding-left: 10px; }
+.md-content pre { background: var(--gray-100); padding: 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+
+.table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 6px; border: 1px solid var(--gray-200); }
+.md-content table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0; }
+.md-content th, .md-content td { padding: 8px 12px; border-bottom: 1px solid var(--gray-200); border-right: 1px solid var(--gray-200); }
+.md-content th:last-child, .md-content td:last-child { border-right: none; }
+.md-content tr:last-child td { border-bottom: none; }
+.md-content th { background: var(--gray-100); font-weight: 700; text-align: left; }
+
+.ref-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; font-size: 8px; font-weight: 700; min-width: 14px; height: 12px; padding: 0 2px; vertical-align: super; margin: 0 1px; cursor: default; position: relative; line-height: 12px; transform: translateY(-2px); white-space: nowrap; }
+.ref-badge.ref-S { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+.ref-badge.ref-C { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.ref-badge.ref-H { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.ref-badge.ref-default { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+.ref-badge:hover::after { content: attr(data-refs); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--gray-800); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; white-space: nowrap; margin-bottom: 4px; z-index: 10; pointer-events: none; }
+
+/* Mermaid */
+.mermaid-wrap { background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px; padding: 16px; margin: 12px 0; overflow-x: auto; text-align: center; }
+.mermaid-fallback { background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px; padding: 12px 16px; margin: 12px 0; font-size: 12px; color: var(--gray-600); }
+
+/* 思考过程 */
+.collapsible-header { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.collapse-arrow { font-size: 12px; color: var(--gray-400); transition: transform .2s; }
+.collapse-arrow.open { transform: rotate(90deg); }
+.collapsible-body { display: none; }
+.collapsible-body.open { display: block; }
+.thinking-text { font-size: 13px; color: var(--gray-600); line-height: 1.8; white-space: pre-wrap; background: var(--gray-50); padding: 14px; border-radius: 6px; border: 1px solid var(--gray-100); max-height: 400px; overflow-y: auto; }
+
+/* 导航 */
+.nav-actions { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+.nav-btn { padding: 8px 18px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--gray-200); background: #fff; color: var(--gray-700); transition: all .15s; }
+.nav-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+.nav-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 右侧评审面板 */
+#review-panel { width: var(--review-width); flex-shrink: 0; background: #fff; border-left: 1px solid var(--gray-200); display: flex; flex-direction: column; transition: width .25s ease; }
+#review-panel-inner { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.review-panel-header { padding: 14px 16px; border-bottom: 1px solid var(--gray-200); background: var(--gray-50); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.review-panel-title { font-size: 15px; font-weight: 700; color: var(--gray-800); flex: 1; }
+.review-status-badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.review-status-badge.reviewed { background: var(--success-light); color: var(--success); }
+.review-status-badge.pending { background: var(--gray-100); color: var(--gray-500); }
+
+.score-section-title { font-size: 13px; font-weight: 700; color: var(--gray-700); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;}
+.quick-fill-btn { font-size: 11px; color: var(--primary); cursor: pointer; font-weight: normal; background: var(--primary-light); padding: 3px 8px; border-radius: 4px; transition: all .15s; }
+.quick-fill-btn:hover { background: #dbeafe; }
+.btn-reset { color: var(--gray-600); background: var(--gray-100); margin-right: 6px; }
+.btn-reset:hover { background: var(--gray-200); color: var(--gray-800); }
+
+.score-range-hint { font-size: 10px; color: var(--gray-400); font-weight: 400; }
+.score-grid { display: flex; flex-direction: column; gap: 8px; }
+.score-item { padding: 10px 12px; background: var(--gray-50); border-radius: 8px; border: 1px solid var(--gray-100); }
+.score-item-top { display: flex; align-items: center; justify-content: space-between; margin-bottom:4px; }
+.score-dim-name { font-size: 13px; font-weight: 700; color: var(--gray-800); }
+.score-dim-desc { font-size: 11px; color: var(--gray-400); margin-bottom: 6px; }
+.score-val-text { font-size: 13px; font-weight: 700; color: var(--success); min-width: 28px; text-align: right; }
+.star-row { display: flex; gap: 2px; }
+.star { flex: 1; height: 26px; border-radius: 4px; border: 1.5px solid var(--gray-200); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 11px; font-weight: 700; color: var(--gray-400); transition: all .1s; background: #fff; }
+.star:hover, .star.active { background: var(--success-light); border-color: var(--success); color: var(--success); }
+.star.active { background: linear-gradient(135deg, #4ade80, #16a34a); color: #fff; border-color: #16a34a; }
+.avg-score-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--primary-light); border-radius: 8px; border: 1px solid #bfdbfe; transition: all .2s ease; }
+.avg-score-label { font-size: 13px; font-weight: 700; color: var(--primary); }
+.avg-score-val { font-size: 18px; font-weight: 800; color: var(--primary); }
+
+.comment-label { font-size: 13px; font-weight: 600; color: var(--gray-700); margin-bottom: 6px; display:flex; justify-content: space-between; align-items: center;}
+
+.comment-textarea { width: 100%; min-height: 90px; padding: 10px 12px; border: 1px solid var(--gray-200); border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; outline: none; transition: border-color .2s; line-height: 1.6; }
+.comment-textarea:focus { border-color: var(--primary); }
+
+.review-actions { display: flex; flex-direction: row; gap: 8px; }
+.save-btn { flex: 1; padding: 10px 0; background: var(--primary); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; transition: background .2s; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.save-btn:hover { background: var(--primary-dark); }
+.save-btn.saved { background: var(--success); }
+.save-next-btn { flex: 1; padding: 10px 0; background: #fff; color: var(--gray-700); border: 1px solid var(--gray-200); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.save-next-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+
+/* 模态框及基础组件 */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 1000; align-items: center; justify-content: center; }
+.modal-overlay.visible { display: flex; }
+.modal { background: #fff; border-radius: 12px; padding: 28px; width: 420px; box-shadow: var(--shadow-lg); animation: modalIn .2s ease; }
+@keyframes modalIn { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.modal-desc { font-size: 13px; color: var(--gray-500); margin-bottom: 20px; }
+.modal-stats { background: var(--gray-50); border-radius: 8px; padding: 14px; margin-bottom: 20px; }
+.modal-stat-row { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+#toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--gray-800); color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; z-index: 9999; transition: transform .3s; pointer-events: none; max-width: 90vw; text-align: center; }
+#toast.show { transform: translateX(-50%) translateY(0); }
+#toast.success { background: var(--success); }
+#toast.error { background: var(--danger); }
+
+/* 侧边栏折叠 */
+.panel-collapse-btn { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--gray-200); background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--gray-500); flex-shrink: 0; }
+.panel-collapse-btn:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+.panel-float-btn { position: fixed; top: 50%; z-index: 200; width: 22px; height: 48px; border-radius: 0 8px 8px 0; background: var(--primary); color: #fff; border: none; cursor: pointer; display: none; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; box-shadow: 2px 0 8px rgba(0,0,0,.15); }
+.panel-float-btn.right { border-radius: 8px 0 0 8px; box-shadow: -2px 0 8px rgba(0,0,0,.15); }
+#sidebar-float-btn { left: 0; transform: translateY(-50%); }
+#review-float-btn { right: 0; transform: translateY(-50%); }
+#sidebar.collapsed { width: 0 !important; border: none; }
+#review-panel.collapsed { width: 0 !important; border: none; }
+.sidebar-header { padding: 10px 12px 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sidebar-header-title { font-size: 12px; font-weight: 700; color: var(--gray-500); }
+
+/* 移动端处理 */
+#drawer-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 900; }
+#drawer-overlay.visible { display: block; }
+.mobile-review-btn { display: none; }
+@media (max-width: 900px) {
+  .mobile-review-btn { display: inline-flex; }
+  #review-panel { position: fixed; top: var(--header-height); right: 0; height: calc(100vh - var(--header-height)); width: min(92vw, 360px); z-index: 950; box-shadow: var(--shadow-lg); transform: translateX(0); }
+  #review-panel.collapsed { transform: translateX(110%); width: min(92vw, 360px) !important; border-left: 1px solid var(--gray-200); }
+  #review-float-btn { display: none !important; }
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gray-400); }
+</style>
+</head>
+<body>
+
+<!-- 上传页面 -->
+<div id="upload-page">
+  <div class="upload-logo">📋</div>
+  <div class="upload-title">AI答案专家评审工具</div>
+  <div class="upload-subtitle">上传测评结果 Excel 文件，开始专家评审</div>
+  <div class="upload-zone" id="upload-zone">
+    <div class="upload-zone-icon">📂</div>
+    <div class="upload-zone-text">拖拽 Excel 文件到此处</div>
+    <div class="upload-zone-hint">或点击下方按钮选择文件（支持 .xlsx 格式）</div>
+    <button class="upload-btn" onclick="document.getElementById('file-input').click()">选择文件</button>
+    <input type="file" id="file-input" accept=".xlsx,.xls">
+  </div>
+  <div class="upload-progress" id="upload-progress"></div>
+  <div style="max-width:520px;margin-top:18px;color:#6b7280;font-size:12px;line-height:1.7;">
+    <div style="font-weight:700;color:#374151;margin-bottom:6px;">关于本工具</div>
+    <div>进度自动<strong>保存在本机浏览器</strong>中。请尽量不要修改测试集文件名，并始终在同一台电脑、同一个浏览器中进行评审；再次上传<strong>同名文件</strong>即可无缝恢复进度。</div>
+    <div style="color:var(--danger);margin-top:4px;">⚠️ 注意：为确保本地评审进度精准匹配，请尽量勿在 Excel 中进行插入、删除或调整行顺序的操作。</div>
+    <div style="margin-top:8px;font-weight:700;color:#374151;">快捷键提示</div>
+    <div>按 <strong>Ctrl + 上下方向键</strong> 切换题目；按 <strong>Ctrl + S</strong> 或 <strong>Ctrl + Enter</strong> 快速保存；按 <strong>[</strong> / <strong>]</strong> 收起展开侧栏。</div>
+  </div>
+</div>
+
+<!-- 主应用 -->
+<div id="app">
+  <div id="header">
+    <div class="header-logo">📋 专家评审</div>
+    <div class="header-file" id="header-filename"></div>
+    <div class="progress-wrap">
+      <div class="progress-text" id="progress-text">0 / 0 已评审</div>
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-bar" style="width:0%"></div></div>
+    </div>
+    <div class="header-actions">
+      <button id="clear-cache-btn" class="btn-icon" style="color:var(--danger); display:none;" onclick="clearLocalCache()" title="清理当前文件的本地缓存">🗑️ 清理缓存</button>
+      <button class="btn btn-outline" onclick="reUpload()">重新上传</button>
+      <button class="btn btn-primary mobile-review-btn" onclick="toggleReview()">评审面板</button>
+      <button class="btn btn-success" onclick="showExportModal()">导出 Excel</button>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-header-title">📝 题目列表</span>
+        <button class="panel-collapse-btn" id="sidebar-collapse-btn" onclick="toggleSidebar()">«</button>
+      </div>
+      <div class="sidebar-search"><input type="text" class="search-input" id="search-input" placeholder="🔍 搜索题目..." oninput="executeFilter()" autocomplete="off"></div>
+      <div class="filter-tabs" id="filter-tabs"></div>
+      <div class="sidebar-stats" id="sidebar-stats"></div>
+      <div id="question-list"></div>
+    </div>
+    <button class="panel-float-btn" id="sidebar-float-btn" onclick="toggleSidebar()">»</button>
+
+    <div id="content">
+      <div id="empty-state">
+        <div class="icon">👈</div><p>请从左侧选择一道题目开始评审</p>
+      </div>
+      <div id="question-detail" style="display:none; flex-direction:column; gap:16px;">
+        <div class="nav-actions">
+          <button class="nav-btn" id="prev-btn" onclick="navigateQuestion(-1)">← 上一题</button>
+          <span class="nav-info" id="nav-info" style="font-size:13px;color:var(--gray-500)"></span>
+          <button class="nav-btn" id="next-btn" onclick="navigateQuestion(1)">下一题 →</button>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-header-icon">❓</span><span class="card-header-title">题目</span></div>
+          <div class="card-body">
+            <div class="question-meta"><span class="meta-badge num" id="q-num-badge"></span><span class="meta-badge cat" id="q-cat-badge"></span></div>
+            <div class="question-text" id="q-text"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-header-icon">💡</span><span class="card-header-title">AI 答案</span></div>
+          <div class="card-body"><div class="md-content" id="answer-content"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header" style="cursor:pointer;" onclick="toggleThinking()">
+            <span class="card-header-icon">🧠</span><span class="card-header-title">思考过程</span><span class="collapse-arrow" id="thinking-arrow">▶</span>
+          </div>
+          <div class="collapsible-body" id="thinking-body">
+            <div class="card-body"><div class="thinking-text" id="thinking-content"></div></div>
+          </div>
+        </div>
+        <div class="nav-actions">
+          <button class="nav-btn" id="prev-btn2" onclick="navigateQuestion(-1)">← 上一题</button>
+          <button class="nav-btn btn-primary" onclick="saveAndNext()">保存并下一题 →</button>
+          <button class="nav-btn" id="next-btn2" onclick="navigateQuestion(1)">下一题 →</button>
+        </div>
+      </div>
+    </div>
+
+    <button class="panel-float-btn right" id="review-float-btn" onclick="toggleReview()">«</button>
+    <div id="review-panel">
+      <div class="review-panel-header">
+        <span style="font-size:16px;">⭐</span><span class="review-panel-title">专家评审</span>
+        <span class="review-status-badge pending" id="review-status-badge">未评审</span>
+        <button class="panel-collapse-btn" id="review-collapse-btn" onclick="toggleReview()" style="margin-left:auto;">»</button>
+      </div>
+      <div id="review-panel-inner">
+        <div id="review-empty" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;color:var(--gray-400);font-size:13px;text-align:center;">
+          <div style="font-size:40px;margin-bottom:12px;">📝</div><div>请先从左侧选择题目</div>
+        </div>
+        <div id="review-content" style="display:none;flex-direction:column;gap:14px;">
+          <div>
+            <div class="score-section-title">
+              <span>评分<span class="score-range-hint">（1-10 分）</span></span>
+              <div>
+                <span class="quick-fill-btn btn-reset" onclick="clearReview()">重置清空</span>
+                <span class="quick-fill-btn" onclick="fillAllScores(10)">一键满分</span>
+              </div>
+            </div>
+            <div class="score-grid" id="score-grid"></div>
+          </div>
+          <div class="avg-score-row" id="avg-score-row" style="display:none;">
+            <span class="avg-score-label">综合均分</span><span class="avg-score-val" id="avg-score-display">-</span>
+          </div>
+          <div>
+            <div class="comment-label">
+              <span>专家评价意见</span>
+            </div>
+            <textarea class="comment-textarea" id="comment-textarea" placeholder="请输入您的评价意见（可选）..."></textarea>
+          </div>
+          <div class="review-actions">
+            <button class="save-btn" id="save-btn" onclick="saveReview()">
+              <span id="save-btn-icon">💾</span><span id="save-btn-text">保存评审</span>
+            </button>
+            <button class="save-next-btn" onclick="saveAndNext()">保存并下一题 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="drawer-overlay" onclick="toggleReview()"></div>
+<div class="modal-overlay" id="export-modal">
+  <div class="modal">
+    <div class="modal-title">📤 导出评审结果</div>
+    <div class="modal-desc">已评审的题目包含评分和评价，未评审的留空。</div>
+    <div style="margin:12px 0 14px 0; background: var(--gray-50); border: 1px solid var(--gray-100); border-radius: 8px; padding: 12px;">
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--gray-700);margin-bottom:6px;cursor:pointer;">
+        <input type="radio" name="export-scope" value="all" checked onchange="setExportScope('all')"> 导出全部
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--gray-700);cursor:pointer;">
+        <input type="radio" name="export-scope" value="reviewed" onchange="setExportScope('reviewed')"> 仅导出已评审题目
+      </label>
+    </div>
+    <div class="modal-stats" id="export-stats"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeExportModal()">取消</button>
+      <button class="btn btn-success" onclick="doExport()">确认导出</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="reupload-modal">
+  <div class="modal">
+    <div class="modal-title">⚠️ 重新上传确认</div>
+    <div class="modal-desc" id="reupload-desc">重新上传将切换文件。当前进度已保存在本地，下次上传同名文件可恢复。确认继续？</div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeReuploadModal()">取消</button><button class="btn btn-primary" onclick="confirmReupload()">继续</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+// ===== 全局状态 =====
+let allQuestions = [];
+let filteredQuestions = [];
+let reviews = {};
+let currentIndex = -1;
+let currentFileName = '';
+let currentFingerprint = '';
+let activeCategory = '全部';
+let showUnreviewedOnly = false;
+let exportScope = 'all';
+
+// 防范 Mermaid 异步竞态
+let currentRenderToken = 0;
+
+// 虚拟列表相关
+const VIRTUAL_THRESHOLD = 100;
+const VIRTUAL_ITEM_HEIGHT = 86;
+let virtualEnabled = false;
+let virtualScrollHandlerAttached = false;
+let virtualVisibleRange = { start: 0, end: 0 };
+let rAF_ID = null;
+
+const SCORE_DIMENSIONS = [
+  { key: 'accuracy',     label: '准确性', desc: '内容与制度一致，无误导' },
+  { key: 'completeness', label: '完整性', desc: '覆盖全部要点，无遗漏' },
+  { key: 'practicality', label: '实用性', desc: '对业务操作有指导价值' },
+  { key: 'friendliness', label: '友好性', desc: '表达清晰，易于理解' },
+  { key: 'normativity',  label: '规范性', desc: '结构合理，引用规范' },
+];
+
+const REF_PREFIX_CLASS = {
+  'S': 'ref-S', 'C': 'ref-C', 'H': 'ref-H', 'R': 'ref-R', 'E': 'ref-E',
+  'Entities': 'ref-Entities', 'Sources': 'ref-Sources',
+};
+
+// 初始化 Mermaid
+mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose', fontFamily: '-apple-system, sans-serif' });
+
+// 全局拦截默认拖拽事件
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+
+// ===== 文件上传解析 =====
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => { e.preventDefault(); uploadZone.classList.remove('drag-over'); handleFile(e.dataTransfer.files[0]); });
+
+fileInput.addEventListener('change', e => { 
+  if (e.target.files[0]) {
+    handleFile(e.target.files[0]);
+    e.target.value = ''; 
+  }
+});
+
+function handleFile(file) {
+  if (!file || !file.name.match(/\.(xlsx|xls)$/i)) return showToast('请上传 .xlsx 格式文件', 'error');
+  currentFileName = file.name;
+  
+  document.getElementById('upload-progress').textContent = '正在读取并解析文件，请稍候...';
+  
+  setTimeout(() => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+        const normalizedData = data.map(row => {
+          let newRow = {};
+          for(let key in row) {
+            let cleanKey = key.replace(/\s+/g, '').replace(/\(/g, '（').replace(/\)/g, '）');
+            newRow[cleanKey] = row[key];
+          }
+          return newRow;
+        });
+        parseQuestions(normalizedData);
+      } catch(err) { showToast('解析失败: ' + err.message, 'error'); }
+    };
+    reader.readAsArrayBuffer(file);
+  }, 50); 
+}
+
+function parseQuestions(data) {
+  const globalKeySet = new Set(); 
+  // 基于题目内容生成当前文件指纹，用于区分同名不同内容的文件
+  currentFingerprint = computeFingerprint(data);
+
+  allQuestions = data.map((row, i) => {
+    const num = row['序号'] || (i + 1);
+    const question = row['问题'] || '';
+    
+    const rawStr = String(num).trim() + '_' + String(question).trim().substring(0, 50);
+    let hash = 0;
+    for (let j = 0; j < rawStr.length; j++) {
+      hash = ((hash << 5) - hash) + rawStr.charCodeAt(j);
+      hash |= 0;
+    }
+    
+    let baseKey = 'k_' + Math.abs(hash);
+    let stableKey = baseKey;
+    let collisionCount = 1;
+    while (globalKeySet.has(stableKey)) {
+      stableKey = baseKey + '_' + collisionCount;
+      collisionCount++;
+    }
+    globalKeySet.add(stableKey);
+
+    return {
+      index: i,
+      key: stableKey,
+      num: num,
+      category: row['业务分类'] || '未分类',
+      question: question,
+      answer: row['答案'] || '',
+      thinking: row['思考过程'] || '',
+    };
+  });
+  reviews = parseReviewsFromFile(data);
+  loadLocalReviews();
+
+  filteredQuestions = [...allQuestions];
+  renderFilterTabs();
+  renderQuestionList();
+  updateProgress();
+  updateSidebarStats();
+
+  document.getElementById('header-filename').textContent = currentFileName;
+  document.getElementById('upload-page').style.display = 'none';
+  document.getElementById('app').classList.add('visible');
+
+  if (window.matchMedia && window.matchMedia('(max-width: 900px)').matches) toggleReviewToCollapsed(true);
+  restoreLastQuestion();
+  showToast(`成功加载 ${allQuestions.length} 道题目`, 'success');
+}
+
+function getQuestionKey(q) { return q ? q.key : ''; }
+function ensureReview(key) {
+  if (!key) return null;
+  if (!reviews[key]) reviews[key] = { scores: {}, comment: '', reviewed: false };
+  if (!reviews[key].scores) reviews[key].scores = {};
+  return reviews[key];
+}
+
+function parseReviewsFromFile(data) {
+  const fromFile = {};
+  data.forEach((row, i) => {
+    const scores = {
+      accuracy: Number(row['准确性（1-10）']) || 0,
+      completeness: Number(row['完整性（1-10）']) || 0,
+      practicality: Number(row['实用性（1-10）']) || 0,
+      friendliness: Number(row['友好性（1-10）']) || 0,
+      normativity: Number(row['规范性（1-10）']) || 0,
+    };
+    const comment = row['专家评价'] ? String(row['专家评价']) : '';
+    if (Object.values(scores).some(v => v > 0) || comment.trim()) {
+      const key = allQuestions[i].key; 
+      fromFile[key] = { scores, comment, reviewed: true };
+    }
+  });
+  return fromFile;
+}
+
+// 基于题目内容生成简易指纹，用于区分同名不同内容的 Excel
+function computeFingerprint(data) {
+  try {
+    const len = data.length || 0;
+    const headCount = Math.min(5, len);
+    const tailCount = Math.min(5, Math.max(0, len - headCount));
+    let raw = String(len);
+
+    for (let i = 0; i < headCount; i++) {
+      const row = data[i] || {};
+      raw += '|' + String(row['序号'] || i + 1)
+        + '#' + String(row['业务分类'] || '')
+        + '#' + String(row['问题'] || '')
+        + '#' + String(row['答案'] || '');
+    }
+    for (let i = len - tailCount; i < len; i++) {
+      if (i < 0) continue;
+      const row = data[i] || {};
+      raw += '|' + String(row['序号'] || i + 1)
+        + '#' + String(row['业务分类'] || '')
+        + '#' + String(row['问题'] || '')
+        + '#' + String(row['答案'] || '');
+    }
+
+    let hash = 0;
+    for (let j = 0; j < raw.length; j++) {
+      hash = ((hash << 5) - hash) + raw.charCodeAt(j);
+      hash |= 0;
+    }
+    return 'fp_' + Math.abs(hash);
+  } catch (e) {
+    return 'fp_fallback';
+  }
+}
+
+function getSanitizedFileName() {
+  return currentFileName.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+}
+function getStorageKey() {
+  const base = getSanitizedFileName();
+  return 'expert_review_' + base + (currentFingerprint ? '_' + currentFingerprint : '');
+}
+function getLegacyStorageKey() {
+  return 'expert_review_' + getSanitizedFileName();
+}
+function getStateKey() {
+  const base = getSanitizedFileName();
+  return 'expert_state_' + base + (currentFingerprint ? '_' + currentFingerprint : '');
+}
+
+function saveLocalReviews() {
+  try { 
+    localStorage.setItem(getStorageKey(), JSON.stringify(reviews)); 
+  } catch(e) {
+    if (e.name === 'QuotaExceededError' || e.code === 22) {
+      showToast('警告：本地存储空间已满！进度保存失败。请尽快导出并清理缓存。', 'error');
+    }
+  }
+}
+
+function loadLocalReviews() {
+  try {
+    // 先尝试读取带指纹的新 key，不存在则回退到旧 key 做一次性迁移
+    let saved = localStorage.getItem(getStorageKey());
+    let fromKey = getStorageKey();
+    if (!saved) {
+      const legacy = localStorage.getItem(getLegacyStorageKey());
+      if (legacy) {
+        saved = legacy;
+        fromKey = getLegacyStorageKey();
+      }
+    }
+
+    if (saved) {
+      const savedObj = JSON.parse(saved) || {};
+      const migratedReviews = {};
+
+      for (const k in savedObj) {
+        if (/^\d+$/.test(k)) {
+          const idx = parseInt(k, 10);
+          if (allQuestions[idx]) {
+            migratedReviews[allQuestions[idx].key] = savedObj[k];
+          }
+        } else {
+          migratedReviews[k] = savedObj[k];
+        }
+      }
+
+      reviews = { ...reviews, ...migratedReviews };
+      // 如是从旧 key 读取，迁移到新 key 并清理旧 key
+      if (fromKey === getLegacyStorageKey()) {
+        try {
+          localStorage.setItem(getStorageKey(), JSON.stringify(reviews));
+          localStorage.removeItem(getLegacyStorageKey());
+        } catch (e) {}
+      }
+      showToast('已恢复上次评审进度', 'success');
+    }
+  } catch(e) {}
+}
+
+function saveCurrentState() {
+  const q = filteredQuestions[currentIndex];
+  if (q) {
+    try { localStorage.setItem(getStateKey(), JSON.stringify({ lastKey: getQuestionKey(q) })); } catch(e) {}
+  }
+}
+
+function restoreLastQuestion() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(getStateKey()));
+    if (saved && saved.lastKey !== undefined) {
+      const idx = filteredQuestions.findIndex(q => getQuestionKey(q) === String(saved.lastKey));
+      if (idx >= 0) {
+        selectQuestion(idx);
+        setTimeout(() => scrollToQuestionIndex(idx, { behavior: 'smooth', block: 'center' }), 300);
+      }
+    }
+  } catch(e) {}
+}
+
+function clearLocalCache() {
+  if (!currentFileName) return;
+  if (confirm(`警告：此操作将彻底清空本机记录的【${currentFileName}】所有评审进度！\n\n如果您还未导出 Excel，强烈建议您先点取消并导出备份。\n确定要清空并重新开始吗？`)) {
+    // 同时清理带指纹与旧版仅文件名的缓存 key
+    localStorage.removeItem(getStorageKey());
+    localStorage.removeItem(getLegacyStorageKey());
+    const base = getSanitizedFileName();
+    localStorage.removeItem('expert_state_' + base);
+    localStorage.removeItem(getStateKey());
+    showToast('缓存已清空，即将重新加载', 'success');
+    setTimeout(() => location.reload(), 1500);
+  }
+}
+
+// ===== 筛选与渲染列表 =====
+function renderFilterTabs() {
+  const categories = ['全部', ...new Set(allQuestions.map(q => q.category))];
+  let html = categories.map(cat => {
+    const count = cat === '全部' ? allQuestions.length : allQuestions.filter(q => q.category === cat).length;
+    const isActive = !showUnreviewedOnly && activeCategory === cat;
+    return `<div class="filter-tab ${isActive ? 'active' : ''}" onclick="setCategory('${escAttr(cat)}')">${escHtml(cat)} <span style="opacity:.7">${count}</span></div>`;
+  }).join('');
+  const unreviewedCount = allQuestions.filter(q => !reviews[getQuestionKey(q)]?.reviewed).length;
+  html += `<div class="filter-tab unreviewed-tab ${showUnreviewedOnly ? 'active' : ''}" onclick="toggleUnreviewed()">未测评 <span style="opacity:.7">${unreviewedCount}</span></div>`;
+  document.getElementById('filter-tabs').innerHTML = html;
+}
+
+function setCategory(cat) { activeCategory = cat; showUnreviewedOnly = false; executeFilter(); }
+function toggleUnreviewed() { showUnreviewedOnly = !showUnreviewedOnly; if (showUnreviewedOnly) activeCategory = '全部'; executeFilter(); }
+function executeFilter() {
+  autoSaveIfNeeded();
+  renderFilterTabs();
+  const kw = document.getElementById('search-input').value.trim().toLowerCase();
+  const prevKey = filteredQuestions[currentIndex] ? getQuestionKey(filteredQuestions[currentIndex]) : null;
+
+  filteredQuestions = allQuestions.filter(q => {
+    const matchCat = activeCategory === '全部' || q.category === activeCategory;
+    const matchKw = !kw || String(q.question).toLowerCase().includes(kw) || String(q.num).includes(kw);
+    const matchUnrev = !showUnreviewedOnly || !reviews[getQuestionKey(q)]?.reviewed;
+    return matchCat && matchKw && matchUnrev;
+  });
+
+  const newIdx = prevKey ? filteredQuestions.findIndex(q => getQuestionKey(q) === prevKey) : -1;
+  currentIndex = newIdx;
+  renderQuestionList();
+  updateSidebarStats();
+  if (currentIndex === -1) setNoSelectionUI(); else renderQuestionDetail();
+}
+
+function updateSidebarStats() {
+  const total = filteredQuestions.length;
+  const rev = filteredQuestions.filter(q => reviews[getQuestionKey(q)]?.reviewed).length;
+  document.getElementById('sidebar-stats').textContent = `显示 ${total} 题 · 已评审 ${rev} 题`;
+}
+
+function renderQuestionList() {
+  const list = document.getElementById('question-list');
+  if (!filteredQuestions.length) {
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:#9ca3af;font-size:13px;">无匹配题目</div>';
+    virtualEnabled = false; return;
+  }
+  if (filteredQuestions.length > VIRTUAL_THRESHOLD) { virtualEnabled = true; renderVirtualList(); }
+  else { virtualEnabled = false; list.innerHTML = filteredQuestions.map((q, i) => renderItemHtml(q, i)).join(''); }
+}
+
+function highlightText(text, kw) {
+  const escapedText = escHtml(String(text));
+  if (!kw) return escapedText;
+  const safeKw = escHtml(kw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
+  const regex = new RegExp(`(${safeKw})`, 'gi');
+  return escapedText.replace(regex, '<span class="search-highlight">$1</span>');
+}
+
+function renderItemHtml(q, idx) {
+  const key = getQuestionKey(q);
+  const rev = reviews[key];
+  const isRev = rev?.reviewed;
+  const avg = isRev ? getAvgScore(rev.scores) : null;
+  const rawText = String(q.question || '').trim() ? q.question : '（无题目）';
+  
+  const kw = document.getElementById('search-input') ? document.getElementById('search-input').value.trim() : '';
+  const renderText = highlightText(rawText, kw);
+  const renderNum = highlightText(q.num, kw);
+
+  return `<div class="question-item ${currentIndex === idx ? 'active' : ''}" data-idx="${idx}" onclick="selectQuestion(${idx})">
+    <div class="q-left"><div class="q-num">${renderNum}</div><div class="q-status ${isRev ? 'reviewed' : ''}"></div></div>
+    <div class="q-right"><div class="q-category">${escHtml(q.category)}</div><div class="q-text">${renderText}</div>${avg ? `<div class="q-score-badge">★ ${avg}</div>` : ''}</div>
+  </div>`;
+}
+
+function renderVirtualList() {
+  const list = document.getElementById('question-list');
+  list.innerHTML = `<div id="virtual-spacer" style="height:${filteredQuestions.length * VIRTUAL_ITEM_HEIGHT}px; position: relative;"></div><div id="virtual-items" style="position: absolute; left: 0; right: 0; top: 0;"></div>`;
+  const onScroll = () => {
+    if (rAF_ID) cancelAnimationFrame(rAF_ID);
+    rAF_ID = requestAnimationFrame(() => {
+      const start = Math.max(0, Math.floor(list.scrollTop / VIRTUAL_ITEM_HEIGHT) - 5);
+      const end = Math.min(filteredQuestions.length, Math.ceil((list.scrollTop + list.clientHeight) / VIRTUAL_ITEM_HEIGHT) + 5);
+      if (virtualVisibleRange.start === start && virtualVisibleRange.end === end) return;
+      virtualVisibleRange = { start, end };
+      const chunk = [];
+      for (let i = start; i < end; i++) chunk.push(`<div style="position:absolute; left:0; right:0; top:${i * VIRTUAL_ITEM_HEIGHT}px;">${renderItemHtml(filteredQuestions[i], i)}</div>`);
+      document.getElementById('virtual-items').innerHTML = chunk.join('');
+    });
+  };
+  if (!virtualScrollHandlerAttached) { list.addEventListener('scroll', () => virtualEnabled && onScroll()); virtualScrollHandlerAttached = true; }
+  virtualVisibleRange = { start: -1, end: -1 }; onScroll();
+}
+
+function selectQuestion(idx) {
+  autoSaveIfNeeded(); 
+  currentIndex = idx;
+  currentRenderToken++; 
+  renderQuestionList();
+  renderQuestionDetail();
+  
+  document.getElementById('content').scrollTop = 0;
+  const reviewInner = document.getElementById('review-panel-inner');
+  if (reviewInner) reviewInner.scrollTop = 0;
+  
+  saveCurrentState();
+}
+
+function renderQuestionDetail() {
+  const q = filteredQuestions[currentIndex];
+  if (!q) return;
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('question-detail').style.display = 'flex';
+
+  document.getElementById('q-num-badge').textContent = `# ${q.num}`;
+  document.getElementById('q-cat-badge').textContent = q.category;
+  document.getElementById('q-text').textContent = String(q.question).trim() || '（无题目）';
+  document.getElementById('nav-info').textContent = `${currentIndex + 1} / ${filteredQuestions.length}`;
+  document.getElementById('prev-btn').disabled = document.getElementById('prev-btn2').disabled = currentIndex <= 0;
+  document.getElementById('next-btn').disabled = document.getElementById('next-btn2').disabled = currentIndex >= filteredQuestions.length - 1;
+
+  renderAnswer(q.answer);
+  document.getElementById('thinking-content').textContent = q.thinking;
+  renderReviewPanel(q);
+}
+
+// ===== Markdown与Mermaid渲染 =====
+function renderAnswer(raw) {
+  const container = document.getElementById('answer-content');
+  if (!raw || !String(raw).trim()) return container.innerHTML = `<div style="color:#9ca3af;font-size:13px;">（无答案）</div>`;
+
+  const processed = raw.replace(/<reference>([\s\S]*?)<\/reference>/g, (m, refs) => {
+    return (refs.match(/\[([A-Za-z]+)-(\d+)\]/g) || []).map(item => {
+      const cls = REF_PREFIX_CLASS[item.match(/\[([A-Za-z]+)/)[1]] || 'ref-default';
+      return `<span class="ref-badge ${cls}" data-refs="${escAttr(item)}" title="${escAttr(item)}">${item.replace(/[\[\]]/g,'')}</span>`;
+    }).join('');
+  });
+
+  const blocks = [];
+  const htmlStr = processed.replace(/```mermaid\n?([\s\S]*?)```/g, (m, code) => {
+    const id = 'mmd-' + blocks.length;
+    blocks.push({ id, code: code.trim() });
+    return `<div id="${id}" style="color:var(--gray-500);font-size:12px;padding:12px;background:var(--gray-50);border-radius:8px;margin:8px 0;">图表渲染中...</div>`;
+  });
+
+  let rawParsedHtml = marked.parse(htmlStr);
+  rawParsedHtml = rawParsedHtml.replace(/(<table[\s\S]*?<\/table>)/gi, '<div class="table-wrap">$1</div>');
+
+  container.innerHTML = DOMPurify.sanitize(rawParsedHtml, { 
+    ADD_TAGS: ['span', 'div', 'a'], 
+    ADD_ATTR: ['class', 'data-refs', 'title', 'id', 'href', 'target'] 
+  });
+  
+  container.querySelectorAll('a').forEach(a => {
+    a.setAttribute('target', '_blank');
+    a.setAttribute('rel', 'noopener noreferrer');
+  });
+  
+  renderMermaidBlocks(container, blocks, currentRenderToken);
+}
+
+async function renderMermaidBlocks(container, blocks, token) {
+  for (const b of blocks) {
+    if (token !== currentRenderToken) return; 
+    const el = container.querySelector('#' + b.id);
+    if (!el) continue;
+    try {
+      const clean = b.code.replace(/[\u200b-\u200d\ufeff]/g, '');
+      const { svg } = await mermaid.render('svg-' + Date.now() + Math.random().toString(36).slice(2), clean);
+      if (token === currentRenderToken) { el.outerHTML = `<div class="mermaid-wrap">${svg}</div>`; }
+    } catch(e) {
+      if (token === currentRenderToken) {
+        el.outerHTML = `<div class="mermaid-fallback"><div style="font-weight:700;margin-bottom:6px">流程图 (降级展示)</div><pre>${escHtml(b.code)}</pre></div>`;
+      }
+    }
+  }
+}
+
+// ===== 右侧面板逻辑 =====
+function renderReviewPanel(q) {
+  document.getElementById('review-empty').style.display = 'none';
+  document.getElementById('review-content').style.display = 'flex';
+  const rev = reviews[getQuestionKey(q)];
+  updateReviewStatusBadge(rev?.reviewed);
+
+  const grid = document.getElementById('score-grid');
+  grid.innerHTML = SCORE_DIMENSIONS.map(dim => {
+    const score = rev?.scores[dim.key] || 0;
+    const stars = [1,2,3,4,5,6,7,8,9,10].map(n => `<div class="star ${score>=n?'active':''}" onclick="setScore('${dim.key}', ${n})">${n}</div>`).join('');
+    return `<div class="score-item">
+      <div class="score-item-top"><span class="score-dim-name">${dim.label}</span><span class="score-val-text" id="val-${dim.key}">${score>0?score+'分':''}</span></div>
+      <div class="score-dim-desc">${dim.desc}</div><div class="star-row" id="stars-${dim.key}">${stars}</div>
+    </div>`;
+  }).join('');
+  
+  const textarea = document.getElementById('comment-textarea');
+  textarea.value = rev?.comment || '';
+  
+  updateAvgScoreDisplay(rev?.scores || {});
+  resetSaveBtn();
+}
+
+function setScore(key, val) {
+  const rev = ensureReview(getQuestionKey(filteredQuestions[currentIndex]));
+  
+  if (rev.scores[key] === val) {
+    val = 0;
+  }
+  rev.scores[key] = val;
+  
+  const row = document.getElementById('stars-' + key);
+  if (row) row.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('active', i < val));
+  const valEl = document.getElementById('val-' + key);
+  if (valEl) valEl.textContent = val > 0 ? val + '分' : '';
+  
+  updateAvgScoreDisplay(rev.scores);
+  saveReview({ silent: true });
+}
+
+function fillAllScores(val) {
+  SCORE_DIMENSIONS.forEach(dim => setScore(dim.key, val));
+  showToast('已一键打满分', 'success');
+}
+
+function clearReview() {
+  const q = filteredQuestions[currentIndex];
+  if (!q) return;
+  const rev = ensureReview(getQuestionKey(q));
+  
+  // 1. 数据归零
+  SCORE_DIMENSIONS.forEach(dim => rev.scores[dim.key] = 0);
+  rev.comment = '';
+  rev.reviewed = false;
+  
+  // 2. UI 归零
+  document.getElementById('comment-textarea').value = '';
+  SCORE_DIMENSIONS.forEach(dim => {
+    const row = document.getElementById('stars-' + dim.key);
+    if (row) row.querySelectorAll('.star').forEach(s => s.classList.remove('active'));
+    const valEl = document.getElementById('val-' + dim.key);
+    if (valEl) valEl.textContent = '';
+  });
+  updateAvgScoreDisplay(rev.scores);
+  
+  // 3. 全局保存与同步
+  saveLocalReviews();
+  updateProgress();
+  updateSidebarStats();
+  renderFilterTabs();
+  
+  // 4. 左侧列表局部清除状态
+  const listItem = document.querySelector(`.question-item[data-idx="${currentIndex}"]`);
+  if (listItem) {
+    const statusDot = listItem.querySelector('.q-status');
+    if (statusDot) statusDot.classList.remove('reviewed');
+    const existingBadge = listItem.querySelector('.q-score-badge');
+    if (existingBadge) existingBadge.remove();
+  }
+  
+  updateReviewStatusBadge(false);
+  resetSaveBtn();
+  showToast('已清空并重置该题', 'success');
+}
+
+function updateAvgScoreDisplay(scores) {
+  const vals = SCORE_DIMENSIONS.map(d => scores[d.key]).filter(v => v > 0);
+  const row = document.getElementById('avg-score-row');
+  if (vals.length) {
+    document.getElementById('avg-score-display').textContent = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) + ' 分';
+    row.style.display = 'flex';
+  } else row.style.display = 'none';
+}
+
+function saveReview(opts = {}) {
+  const { silent = false } = opts;
+  const q = filteredQuestions[currentIndex];
+  if (!q) return;
+  const rev = ensureReview(getQuestionKey(q));
+  rev.comment = document.getElementById('comment-textarea').value;
+  const hasScore = SCORE_DIMENSIONS.some(d => (rev.scores?.[d.key] || 0) > 0);
+  
+  if (!silent) {
+    rev.reviewed = true;
+  } else {
+    rev.reviewed = rev.reviewed || hasScore || rev.comment.trim().length > 0;
+  }
+
+  saveLocalReviews();
+  updateProgress();
+  updateSidebarStats();
+  renderFilterTabs();
+  
+  const listItem = document.querySelector(`.question-item[data-idx="${currentIndex}"]`);
+  if (listItem) {
+    const statusDot = listItem.querySelector('.q-status');
+    if (statusDot) {
+      if (rev.reviewed) statusDot.classList.add('reviewed');
+      else statusDot.classList.remove('reviewed');
+    }
+    const rightArea = listItem.querySelector('.q-right');
+    const existingBadge = listItem.querySelector('.q-score-badge');
+    const avg = getAvgScore(rev.scores);
+    if (avg) {
+      if (existingBadge) existingBadge.textContent = '★ ' + avg;
+      else rightArea.insertAdjacentHTML('beforeend', `<div class="q-score-badge">★ ${avg}</div>`);
+    } else if (existingBadge) {
+      existingBadge.remove();
+    }
+  }
+
+  updateReviewStatusBadge(!!rev.reviewed);
+  if (!silent) {
+    document.getElementById('save-btn').classList.add('saved');
+    document.getElementById('save-btn-icon').textContent = '✅';
+    document.getElementById('save-btn-text').textContent = '已保存';
+    
+    setTimeout(resetSaveBtn, 2000);
+    showToast('评审已保存', 'success');
+  }
+}
+
+function autoSaveIfNeeded(opts = {}) {
+  const q = filteredQuestions[currentIndex];
+  if (!q) return;
+  const currentComment = document.getElementById('comment-textarea').value;
+  const rev = ensureReview(getQuestionKey(q));
+  
+  const prevComment = rev.comment || '';
+  const isCommentDirty = prevComment !== currentComment;
+
+  if (isCommentDirty) {
+    rev.comment = currentComment;
+    saveReview({ silent: true });
+  }
+}
+
+function saveAndNext() { saveReview(); setTimeout(() => navigateQuestion(1), 150); }
+function getAvgScore(scores) {
+  const vals = SCORE_DIMENSIONS.map(d => scores[d.key]).filter(v => v > 0);
+  return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
+}
+function updateReviewStatusBadge(rev) {
+  const b = document.getElementById('review-status-badge');
+  b.className = `review-status-badge ${rev ? 'reviewed' : 'pending'}`;
+  b.textContent = rev ? '已评审' : '未评审';
+}
+function resetSaveBtn() {
+  const btn = document.getElementById('save-btn');
+  btn.classList.remove('saved');
+  document.getElementById('save-btn-icon').textContent = '💾';
+  document.getElementById('save-btn-text').textContent = '保存评审';
+}
+
+function navigateQuestion(dir) {
+  autoSaveIfNeeded();
+  const n = currentIndex + dir;
+  if (n >= 0 && n < filteredQuestions.length) {
+    selectQuestion(n);
+    setTimeout(() => scrollToQuestionIndex(n, { behavior: 'smooth', block: 'nearest' }), 50);
+  }
+}
+function scrollToQuestionIndex(idx, opts) {
+  const list = document.getElementById('question-list');
+  if (virtualEnabled) list.scrollTop = Math.max(0, idx * VIRTUAL_ITEM_HEIGHT - list.clientHeight / 2);
+  else document.querySelectorAll('.question-item')[idx]?.scrollIntoView(opts);
+}
+function updateProgress() {
+  const t = allQuestions.length, r = allQuestions.filter(q => reviews[getQuestionKey(q)]?.reviewed).length;
+  document.getElementById('progress-text').textContent = `${r} / ${t} 已评审`;
+  document.getElementById('progress-bar').style.width = (t ? r/t*100 : 0) + '%';
+}
+
+// ===== 导出逻辑 =====
+function showExportModal() {
+  autoSaveIfNeeded(); 
+  const t = allQuestions.length, r = allQuestions.filter(q => reviews[getQuestionKey(q)]?.reviewed).length;
+  document.getElementById('export-stats').innerHTML = `<div class="modal-stat-row"><span class="label">总题目数</span><span class="value">${t} 题</span></div><div class="modal-stat-row"><span class="label">已评审</span><span class="value" style="color:#16a34a">${r} 题</span></div><div class="modal-stat-row"><span class="label">未评审（留空导出）</span><span class="value" style="color:#d97706">${t-r} 题</span></div>`;
+  document.getElementById('export-modal').classList.add('visible');
+}
+function closeExportModal() { document.getElementById('export-modal').classList.remove('visible'); }
+function setExportScope(s) { exportScope = s; }
+function doExport() {
+  closeExportModal();
+  const source = exportScope === 'reviewed' ? allQuestions.filter(q => reviews[getQuestionKey(q)]?.reviewed) : allQuestions;
+  if (!source.length) return showToast('无数据可导出', 'error');
+  try {
+    const rows = source.map(q => {
+      const s = reviews[getQuestionKey(q)]?.scores || {};
+      const avg = getAvgScore(s);
+      return {
+        '序号': q.num, '业务分类': q.category, '问题': q.question, '答案': q.answer, '思考过程': q.thinking,
+        '准确性（1-10）': s.accuracy||'', '完整性（1-10）': s.completeness||'', '实用性（1-10）': s.practicality||'', '友好性（1-10）': s.friendliness||'', '规范性（1-10）': s.normativity||'',
+        '综合均分': avg !== null ? Number(avg) : '', '专家评价': reviews[getQuestionKey(q)]?.comment || ''
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 8 }, { wch: 16 }, { wch: 40 }, { wch: 60 }, { wch: 60 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 40 }];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '评审结果');
+    const d = new Date(), ts = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}`;
+    XLSX.writeFile(wb, `评审结果_${ts}.xlsx`);
+    showToast('导出成功', 'success');
+  } catch(e) { showToast('导出失败', 'error'); }
+}
+
+// ===== UI及交互辅助 =====
+function reUpload() { Object.keys(reviews).length ? document.getElementById('reupload-modal').classList.add('visible') : doReuploadReset(); }
+function closeReuploadModal() { document.getElementById('reupload-modal').classList.remove('visible'); }
+function confirmReupload() { closeReuploadModal(); doReuploadReset(); }
+function doReuploadReset() {
+  document.getElementById('app').classList.remove('visible'); document.getElementById('upload-page').style.display = 'flex';
+  document.getElementById('upload-progress').textContent = ''; document.getElementById('file-input').value = '';
+  allQuestions = []; filteredQuestions = []; reviews = {}; currentIndex = -1;
+}
+
+let toastTimer;
+function showToast(msg, type) {
+  const el = document.getElementById('toast'); el.textContent = msg; el.className = `show ${type}`;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.className = '', 2500);
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escAttr(s) { return String(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function toggleThinking() { document.getElementById('thinking-body').classList.toggle('open'); document.getElementById('thinking-arrow').classList.toggle('open'); }
+function setNoSelectionUI() { document.getElementById('empty-state').style.display = 'flex'; document.getElementById('question-detail').style.display = 'none'; document.getElementById('review-empty').style.display = 'flex'; document.getElementById('review-content').style.display = 'none'; }
+
+let sCol = false, rCol = false;
+function toggleSidebar() {
+  sCol = !sCol; document.getElementById('sidebar').classList.toggle('collapsed', sCol);
+  document.getElementById('sidebar-float-btn').style.display = sCol ? 'flex' : 'none';
+  document.getElementById('sidebar-collapse-btn').style.display = sCol ? 'none' : 'flex';
+}
+function toggleReview() { toggleReviewToCollapsed(!rCol); }
+function toggleReviewToCollapsed(c) {
+  rCol = !!c; document.getElementById('review-panel').classList.toggle('collapsed', rCol);
+  document.getElementById('review-float-btn').style.display = rCol ? 'flex' : 'none';
+  document.getElementById('review-collapse-btn').style.display = rCol ? 'none' : 'flex';
+  if (!rCol && window.matchMedia('(max-width: 900px)').matches) document.getElementById('drawer-overlay').classList.add('visible');
+  else document.getElementById('drawer-overlay').classList.remove('visible');
+}
+
+window.addEventListener('beforeunload', () => {
+  autoSaveIfNeeded({ silent: true });
+});
+
+let secretCode = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+let secretIndex = 0;
+
+document.addEventListener('keydown', e => {
+  if (e.key === secretCode[secretIndex]) {
+    secretIndex++;
+    if (secretIndex === secretCode.length) {
+      const btn = document.getElementById('clear-cache-btn');
+      if (btn) btn.style.display = 'inline-block';
+      secretIndex = 0;
+      showToast('已开启清理缓存功能', 'success');
+    }
+  } else {
+    secretIndex = e.key === secretCode[0] ? 1 : 0;
+  }
+
+  const tag = document.activeElement.tagName;
+  
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    saveReview();
+    return;
+  }
+  
+  if (tag === 'TEXTAREA' || tag === 'INPUT') {
+    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); saveReview(); }
+    return;
+  }
+  
+  if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowLeft')) { e.preventDefault(); navigateQuestion(-1); }
+  if (e.ctrlKey && (e.key === 'ArrowDown' || e.key === 'ArrowRight')) { e.preventDefault(); navigateQuestion(1); }
+  
+  if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); saveReview(); }
+  if (e.key === '[') { e.preventDefault(); toggleSidebar(); }
+  if (e.key === ']') { e.preventDefault(); toggleReview(); }
+});
+</script>
+</body>
+</html>
