@@ -430,13 +430,59 @@ const SCORE_DIMENSIONS = [
   { key: 'normativity',  label: '规范性', desc: '结构合理，引用规范' },
 ];
 
+const FIELD_ALIASES = {
+  num: ['序号', '编号', 'id'],
+  category: ['业务分类', '分类', '类别'],
+  question: ['问题', '题目', 'query', 'question'],
+  answer: ['答案', '回答', 'AI答案', '模型答案', 'answer', 'response'],
+  thinking: ['思考过程', '推理过程', '分析过程', 'reasoning', 'cot'],
+  accuracy: ['准确性（1-10）', '准确性(1-10)', '准确性', 'accuracy'],
+  completeness: ['完整性（1-10）', '完整性(1-10)', '完整性', 'completeness'],
+  practicality: ['实用性（1-10）', '实用性(1-10)', '实用性', 'practicality'],
+  friendliness: ['友好性（1-10）', '友好性(1-10)', '友好性', 'friendliness'],
+  normativity: ['规范性（1-10）', '规范性(1-10)', '规范性', 'normativity'],
+  comment: ['专家评价', '评语', '评价意见', 'comment'],
+};
+
+function normalizeFieldKey(key) {
+  return String(key || '')
+    .replace(/[\u200b-\u200d\ufeff\u00a0]/g, '')
+    .replace(/\s+/g, '')
+    .replace(/\(/g, '（')
+    .replace(/\)/g, '）')
+    .replace(/[：:]/g, '')
+    .trim();
+}
+
+function getCellValue(row, aliases, fallback = '') {
+  if (!row || typeof row !== 'object') return fallback;
+  const normalizedAliases = aliases.map(a => normalizeFieldKey(a));
+
+  for (const alias of normalizedAliases) {
+    if (Object.prototype.hasOwnProperty.call(row, alias)) {
+      const val = row[alias];
+      if (val !== '' && val !== null && val !== undefined) return val;
+    }
+  }
+
+  for (const key in row) {
+    const normalizedKey = normalizeFieldKey(key);
+    if (!normalizedKey) continue;
+    if (normalizedAliases.some(alias => normalizedKey === alias || normalizedKey.includes(alias) || alias.includes(normalizedKey))) {
+      const val = row[key];
+      if (val !== '' && val !== null && val !== undefined) return val;
+    }
+  }
+  return fallback;
+}
+
 const REF_PREFIX_CLASS = {
   'S': 'ref-S', 'C': 'ref-C', 'H': 'ref-H', 'R': 'ref-R', 'E': 'ref-E',
   'Entities': 'ref-Entities', 'Sources': 'ref-Sources',
 };
 
 // 初始化 Mermaid
-mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose', fontFamily: '-apple-system, sans-serif' });
+mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict', fontFamily: '-apple-system, sans-serif' });
 
 // 全局拦截默认拖拽事件
 window.addEventListener('dragover', e => e.preventDefault());
@@ -458,7 +504,7 @@ fileInput.addEventListener('change', e => {
 });
 
 function handleFile(file) {
-  if (!file || !file.name.match(/\.(xlsx|xls)$/i)) return showToast('请上传 .xlsx 格式文件', 'error');
+  if (!file || !file.name.match(/\.(xlsx|xls)$/i)) return showToast('请上传 .xlsx 或 .xls 格式文件', 'error');
   currentFileName = file.name;
   
   document.getElementById('upload-progress').textContent = '正在读取并解析文件，请稍候...';
@@ -472,7 +518,7 @@ function handleFile(file) {
         const normalizedData = data.map(row => {
           let newRow = {};
           for(let key in row) {
-            let cleanKey = key.replace(/\s+/g, '').replace(/\(/g, '（').replace(/\)/g, '）');
+            let cleanKey = normalizeFieldKey(key);
             newRow[cleanKey] = row[key];
           }
           return newRow;
@@ -490,8 +536,8 @@ function parseQuestions(data) {
   currentFingerprint = computeFingerprint(data);
 
   allQuestions = data.map((row, i) => {
-    const num = row['序号'] || (i + 1);
-    const question = row['问题'] || '';
+    const num = getCellValue(row, FIELD_ALIASES.num, i + 1);
+    const question = getCellValue(row, FIELD_ALIASES.question, '');
     
     const rawStr = String(num).trim() + '_' + String(question).trim().substring(0, 50);
     let hash = 0;
@@ -513,10 +559,10 @@ function parseQuestions(data) {
       index: i,
       key: stableKey,
       num: num,
-      category: row['业务分类'] || '未分类',
+      category: getCellValue(row, FIELD_ALIASES.category, '未分类'),
       question: question,
-      answer: row['答案'] || '',
-      thinking: row['思考过程'] || '',
+      answer: getCellValue(row, FIELD_ALIASES.answer, ''),
+      thinking: getCellValue(row, FIELD_ALIASES.thinking, ''),
     };
   });
   reviews = parseReviewsFromFile(data);
@@ -549,13 +595,13 @@ function parseReviewsFromFile(data) {
   const fromFile = {};
   data.forEach((row, i) => {
     const scores = {
-      accuracy: Number(row['准确性（1-10）']) || 0,
-      completeness: Number(row['完整性（1-10）']) || 0,
-      practicality: Number(row['实用性（1-10）']) || 0,
-      friendliness: Number(row['友好性（1-10）']) || 0,
-      normativity: Number(row['规范性（1-10）']) || 0,
+      accuracy: Number(getCellValue(row, FIELD_ALIASES.accuracy, 0)) || 0,
+      completeness: Number(getCellValue(row, FIELD_ALIASES.completeness, 0)) || 0,
+      practicality: Number(getCellValue(row, FIELD_ALIASES.practicality, 0)) || 0,
+      friendliness: Number(getCellValue(row, FIELD_ALIASES.friendliness, 0)) || 0,
+      normativity: Number(getCellValue(row, FIELD_ALIASES.normativity, 0)) || 0,
     };
-    const comment = row['专家评价'] ? String(row['专家评价']) : '';
+    const comment = String(getCellValue(row, FIELD_ALIASES.comment, '') || '');
     if (Object.values(scores).some(v => v > 0) || comment.trim()) {
       const key = allQuestions[i].key; 
       fromFile[key] = { scores, comment, reviewed: true };
@@ -574,18 +620,18 @@ function computeFingerprint(data) {
 
     for (let i = 0; i < headCount; i++) {
       const row = data[i] || {};
-      raw += '|' + String(row['序号'] || i + 1)
-        + '#' + String(row['业务分类'] || '')
-        + '#' + String(row['问题'] || '')
-        + '#' + String(row['答案'] || '');
+      raw += '|' + String(getCellValue(row, FIELD_ALIASES.num, i + 1))
+        + '#' + String(getCellValue(row, FIELD_ALIASES.category, ''))
+        + '#' + String(getCellValue(row, FIELD_ALIASES.question, ''))
+        + '#' + String(getCellValue(row, FIELD_ALIASES.answer, ''));
     }
     for (let i = len - tailCount; i < len; i++) {
       if (i < 0) continue;
       const row = data[i] || {};
-      raw += '|' + String(row['序号'] || i + 1)
-        + '#' + String(row['业务分类'] || '')
-        + '#' + String(row['问题'] || '')
-        + '#' + String(row['答案'] || '');
+      raw += '|' + String(getCellValue(row, FIELD_ALIASES.num, i + 1))
+        + '#' + String(getCellValue(row, FIELD_ALIASES.category, ''))
+        + '#' + String(getCellValue(row, FIELD_ALIASES.question, ''))
+        + '#' + String(getCellValue(row, FIELD_ALIASES.answer, ''));
     }
 
     let hash = 0;
@@ -705,11 +751,17 @@ function renderFilterTabs() {
   let html = categories.map(cat => {
     const count = cat === '全部' ? allQuestions.length : allQuestions.filter(q => q.category === cat).length;
     const isActive = !showUnreviewedOnly && activeCategory === cat;
-    return `<div class="filter-tab ${isActive ? 'active' : ''}" onclick="setCategory('${escAttr(cat)}')">${escHtml(cat)} <span style="opacity:.7">${count}</span></div>`;
+    return `<div class="filter-tab ${isActive ? 'active' : ''}" data-category="${encodeURIComponent(cat)}">${escHtml(cat)} <span style="opacity:.7">${count}</span></div>`;
   }).join('');
   const unreviewedCount = allQuestions.filter(q => !reviews[getQuestionKey(q)]?.reviewed).length;
-  html += `<div class="filter-tab unreviewed-tab ${showUnreviewedOnly ? 'active' : ''}" onclick="toggleUnreviewed()">未测评 <span style="opacity:.7">${unreviewedCount}</span></div>`;
+  html += `<div class="filter-tab unreviewed-tab ${showUnreviewedOnly ? 'active' : ''}" id="unreviewed-tab-btn">未测评 <span style="opacity:.7">${unreviewedCount}</span></div>`;
   document.getElementById('filter-tabs').innerHTML = html;
+
+  document.querySelectorAll('#filter-tabs .filter-tab[data-category]').forEach(el => {
+    el.addEventListener('click', () => setCategory(decodeURIComponent(el.dataset.category || '全部')));
+  });
+  const unreviewedTab = document.getElementById('unreviewed-tab-btn');
+  if (unreviewedTab) unreviewedTab.addEventListener('click', toggleUnreviewed);
 }
 
 function setCategory(cat) { activeCategory = cat; showUnreviewedOnly = false; executeFilter(); }
